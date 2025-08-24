@@ -1,4 +1,4 @@
-name: FastAPI CI/CD Pipeline
+name: FastAPI VPS Manager FIN
 
 on:
   workflow_dispatch:
@@ -9,38 +9,13 @@ on:
         default: 'deploy'
         type: choice
         options:
-          - build
           - deploy
-          - cleanup
+          - delete
 
 jobs:
-  build:
-    name: 🏗️ Build Docker Image
-    if: ${{ github.event.inputs.action == 'build' }}
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      
-    - name: Build Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        tags: my-fastapi-app:latest
-        
-    - name: Save build info
-      run: |
-        echo "✅ Build completed successfully!"
-        echo "📦 Image: my-fastapi-app:latest"
-
   deploy:
-    name: 🚀 Deploy to Production
+    name: 🚀 Deploy Application
     runs-on: ubuntu-latest
-    # УБИРАЕМ needs: build - чтобы deploy мог запускаться независимо
     if: ${{ github.event.inputs.action == 'deploy' }}
     
     steps:
@@ -54,13 +29,15 @@ jobs:
         username: ${{ secrets.VPS_USERNAME }}
         key: ${{ secrets.VPS_SSH_KEY }}
         port: 22
+        timeout: 300s
         script: |
-          echo "🚀 Starting deployment..."
+          echo "🚀 Starting deployment process..."
           mkdir -p ~/app
           cd ~/app
           
+          # Клонируем или обновляем репозиторий
           if [ ! -d .git ]; then
-            echo "📦 Cloning repository..."
+            echo "📦 Cloning repository for the first time..."
             git clone https://github.com/${{ github.repository }}.git .
           else
             echo "🔄 Pulling latest changes..."
@@ -73,15 +50,16 @@ jobs:
           
           echo "✅ Deployment completed successfully!"
           echo "🌐 Application available at: http://${{ secrets.VPS_HOST }}:8000"
+          echo "📊 Running containers:"
           docker ps
 
-  cleanup:
-    name: 🧹 Cleanup Resources
+  delete:
+    name: 🗑️ Delete Containers
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.action == 'cleanup' }}
+    if: ${{ github.event.inputs.action == 'delete' }}
     
     steps:
-    - name: Cleanup on VPS
+    - name: Delete containers on VPS
       uses: appleboy/ssh-action@v0.1.10
       with:
         host: ${{ secrets.VPS_HOST }}
@@ -89,22 +67,11 @@ jobs:
         key: ${{ secrets.VPS_SSH_KEY }}
         port: 22
         script: |
-          echo "🧹 Starting cleanup..."
+          echo "🛑 Stopping and removing containers..."
           cd ~/app 2>/dev/null && docker compose down -v || echo "⚠️ No containers to remove"
-          docker system prune -af
+          
+          echo "🧹 Cleaning up Docker resources..."
+          docker system prune -af --volumes 2>/dev/null || true
+          
           echo "✅ Cleanup completed!"
-
-  status:
-    name: 📊 Pipeline Status
-    runs-on: ubuntu-latest
-    needs: [build, deploy, cleanup]
-    if: always()
-    
-    steps:
-    - name: Show results
-      run: |
-        echo "📋 Pipeline Results:"
-        echo "Build: ${{ needs.build.result || 'skipped' }}"
-        echo "Deploy: ${{ needs.deploy.result || 'skipped' }}"
-        echo "Cleanup: ${{ needs.cleanup.result || 'skipped' }}"
-        echo "Workflow ID: ${{ github.run_id }}"
+          echo "📋 All containers removed"
