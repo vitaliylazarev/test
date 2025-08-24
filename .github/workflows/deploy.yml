@@ -1,0 +1,109 @@
+name: FastAPI CI/CD 
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Select environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+      action:
+        description: 'Select action'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - build
+          - deploy  
+          - delete
+
+jobs:
+  build:
+    name: 🏗️ Build Docker Image
+    if: ${{ github.event.inputs.action == 'build' }}
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        tags: my-fastapi-app:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Show build info
+      run: |
+        echo "✅ Docker image built successfully!"
+        echo "📦 Image tagged: my-fastapi-app:latest"
+        echo "🌍 Environment: ${{ github.event.inputs.environment }}"
+
+  deploy:
+    name: 🚀 Deploy to VPS
+    if: ${{ github.event.inputs.action == 'deploy' }}
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Deploy to ${{ github.event.inputs.environment }}
+      uses: appleboy/ssh-action@v0.1.10
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USERNAME }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        port: 22
+        timeout: 120s
+        script: |
+          echo "🚀 Starting deployment to ${{ github.event.inputs.environment }}..."
+          mkdir -p ~/app
+          cd ~/app
+          
+          if [ ! -d .git ]; then
+            echo "📦 Cloning repository..."
+            git clone https://github.com/${{ github.repository }}.git .
+          else
+            echo "🔄 Pulling latest changes..."
+            git fetch origin
+            git reset --hard origin/main
+          fi
+          
+          echo "🐳 Building and starting containers..."
+          docker compose up -d --build
+          
+          echo "✅ Deployment completed to ${{ github.event.inputs.environment }}!"
+          docker ps
+
+  delete:
+    name: 🗑️ Delete Containers
+    if: ${{ github.event.inputs.action == 'delete' }}
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Delete containers on VPS
+      uses: appleboy/ssh-action@v0.1.10
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USERNAME }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        port: 22
+        script: |
+          echo "🛑 Stopping and removing containers..."
+          cd ~/app 2>/dev/null && docker compose down -v || echo "⚠️ No containers to remove"
+          
+          echo "🧹 Cleaning up Docker resources..."
+          docker system prune -af --volumes 2>/dev/null || true
+          
+
+          echo "✅ Cleanup completed for ${{ github.event.inputs.environment }}!"
