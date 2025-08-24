@@ -4,4 +4,4 @@ app = FastAPI()
 
 @app.get("/")
 def read_root():
-    return {"Hello": "World from CI-CD!"}
+    return {"Hello": "World from CI/CD!"}
